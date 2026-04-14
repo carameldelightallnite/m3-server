@@ -90,22 +90,56 @@ def pay():
         cur.execute("SELECT balance FROM users WHERE id=?", (sender,))
         bal = cur.fetchone()
 
-        if bal and bal[0] >= amount:
-            cur.execute("UPDATE users SET balance = balance - ? WHERE id=?", (amount, sender))
-            cur.execute("INSERT OR IGNORE INTO users (id, balance) VALUES (?, 0)", (receiver,))
-            cur.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, receiver))
+        if not bal:
+            return "USER_NOT_FOUND"
 
-            cur.execute(
-                "INSERT INTO transactions VALUES (?,?,?,?)",
-                (sender, receiver, amount, int(time.time()))
-            )
+        if bal[0] < amount:
+            return "INSUFFICIENT_FUNDS"
 
-            conn.commit()
-            return "SUCCESS"
+        cur.execute("UPDATE users SET balance = balance - ? WHERE id=?", (amount, sender))
+        cur.execute("INSERT OR IGNORE INTO users (id, balance) VALUES (?, 0)", (receiver,))
+        cur.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, receiver))
 
-        return "FAIL"
+        cur.execute(
+            "INSERT INTO transactions VALUES (?,?,?,?)",
+            (sender, receiver, amount, int(time.time()))
+        )
+
+        conn.commit()
+        return "SUCCESS"
+
     except Exception as e:
         print("PAY ERROR:", e)
+        return "ERROR"
+
+@app.route('/history', methods=['POST'])
+def history():
+    try:
+        user = request.get_data(as_text=True).strip()
+        if not user:
+            return "NONE"
+
+        cur.execute("""
+        SELECT sender, receiver, amount, time
+        FROM transactions
+        WHERE sender=? OR receiver=?
+        ORDER BY time DESC
+        LIMIT 10
+        """, (user, user))
+
+        rows = cur.fetchall()
+
+        if not rows:
+            return "NONE"
+
+        result = []
+        for r in rows:
+            result.append(f"{r[0]}->{r[1]}:{r[2]}:{r[3]}")
+
+        return "\n".join(result)
+
+    except Exception as e:
+        print("HISTORY ERROR:", e)
         return "ERROR"
 
 @app.route('/stats', methods=['GET'])
