@@ -50,27 +50,66 @@ def register():
             conn.commit()
 
         return "OK"
-    except Exception as e:
-        print("REGISTER ERROR:", e)
+    except:
         return "OK"
 
 @app.route('/balance', methods=['POST'])
 def balance():
     try:
         user = get_user()
-        if not user:
-            return "0"
-
         cur.execute("SELECT balance FROM users WHERE id=?", (user,))
         result = cur.fetchone()
-
-        if result:
-            return str(result[0])
-
+        return str(result[0]) if result else "0"
+    except:
         return "0"
-    except Exception as e:
-        print("BALANCE ERROR:", e)
-        return "0"
+
+@app.route('/deposit', methods=['POST'])
+def deposit():
+    try:
+        data = request.get_data(as_text=True).split("|")
+        user = data[0]
+        amount = int(data[1])
+
+        cur.execute("INSERT OR IGNORE INTO users (id, balance) VALUES (?, 0)", (user,))
+        cur.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, user))
+
+        cur.execute(
+            "INSERT INTO transactions VALUES (?,?,?,?)",
+            ("BANK", user, amount, int(time.time()))
+        )
+
+        conn.commit()
+        return "DEPOSIT_SUCCESS"
+    except:
+        return "ERROR"
+
+@app.route('/withdraw', methods=['POST'])
+def withdraw():
+    try:
+        data = request.get_data(as_text=True).split("|")
+        user = data[0]
+        amount = int(data[1])
+
+        cur.execute("SELECT balance FROM users WHERE id=?", (user,))
+        bal = cur.fetchone()
+
+        if not bal:
+            return "USER_NOT_FOUND"
+
+        if bal[0] < amount:
+            return "INSUFFICIENT_FUNDS"
+
+        cur.execute("UPDATE users SET balance = balance - ? WHERE id=?", (amount, user))
+
+        cur.execute(
+            "INSERT INTO transactions VALUES (?,?,?,?)",
+            (user, "BANK", amount, int(time.time()))
+        )
+
+        conn.commit()
+        return "WITHDRAW_SUCCESS"
+    except:
+        return "ERROR"
 
 @app.route('/pay', methods=['POST'])
 def pay():
@@ -84,7 +123,7 @@ def pay():
         return "ERROR"
 
     if confirm != "yes":
-        return "CONFIRM|" + sender + "|" + receiver + "|" + str(amount)
+        return f"CONFIRM|{sender}|{receiver}|{amount}"
 
     try:
         cur.execute("SELECT balance FROM users WHERE id=?", (sender,))
@@ -107,17 +146,13 @@ def pay():
 
         conn.commit()
         return "SUCCESS"
-
-    except Exception as e:
-        print("PAY ERROR:", e)
+    except:
         return "ERROR"
 
 @app.route('/history', methods=['POST'])
 def history():
     try:
         user = request.get_data(as_text=True).strip()
-        if not user:
-            return "NONE"
 
         cur.execute("""
         SELECT sender, receiver, amount, time
@@ -132,14 +167,8 @@ def history():
         if not rows:
             return "NONE"
 
-        result = []
-        for r in rows:
-            result.append(f"{r[0]}->{r[1]}:{r[2]}:{r[3]}")
-
-        return "\n".join(result)
-
-    except Exception as e:
-        print("HISTORY ERROR:", e)
+        return "\n".join([f"{r[0]}->{r[1]}:{r[2]}:{r[3]}" for r in rows])
+    except:
         return "ERROR"
 
 @app.route('/stats', methods=['GET'])
